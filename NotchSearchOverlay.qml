@@ -57,7 +57,7 @@ PanelWindow {
     anchors.top: parent.top
     anchors.horizontalCenter: parent.horizontalCenter
     radius: 14
-    color: searchOverlay.searchTransparent ? Qt.rgba(Color.bar.background.r, Color.bar.background.g, Color.bar.background.b, 0.96) : Color.bar.background
+    color: Color.bar.background
     borderColor: Qt.rgba(searchOverlay.searchThemeForeground.r, searchOverlay.searchThemeForeground.g, searchOverlay.searchThemeForeground.b, 0.25)
     borderWidth: 1
     contentWidth: 480

@@ -6,13 +6,21 @@
   "author": "Gustavo",
   "description": "Dynamic island launcher for Omarchy shell",
   "kinds": [
-    "menu"
+    "menu",
+    "bar-widget"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "menu": "Menu.qml"
+    "menu": "Menu.qml",
+    "barWidget": "BarWidget.qml"
   },
   "omarchy": {
     "clonedFrom": "omarchy.menu"
+  },
+  "barWidget": {
+    "displayName": "Omarchy menu",
+    "description": "Launches the Notch Island menu",
+    "category": "Compositor",
+    "allowMultiple": false
   }
 }

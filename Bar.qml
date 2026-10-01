@@ -237,13 +237,16 @@ Item {
   }
 
   function openMenu(route) {
+    var island = root.activeCenterIsland()
+    if (island) {
+      // openRoute sets the open state itself, and only for real menus; action
+      // routes (theme, background) just run, so the notch no longer flickers open.
+      island.openRoute(route || "root")
+      return
+    }
     root.isMenuOpen = true
     root.isSearchOpen = false
     root.isHistoryOpen = false
-    var island = root.activeCenterIsland()
-    if (island) {
-      island.openRoute(route || "root")
-    }
   }
 
   function closeMenu() {
@@ -872,7 +875,8 @@ Item {
     if (activePopout === owner) activePopout = null
   }
 
-  property int islandHeight: 30
+  property int islandHeight: 35
+  property int islandGap: 6 // floating gap between the screen top and the islands
   property int islandTopMargin: 4
   property int islandRadius: 10
   property int islandAutoHideDelayMs: 1000
@@ -1441,12 +1445,16 @@ Item {
 
   Timer {
     id: centerSectionRevealTimer
-    interval: 120
+    interval: 300 // was 120; also delays the clock-only collapse
     // Collapse only. Opening the peek is the center section's own gesture, done
     // in setCenterSectionHovered, so a timer left pending by a pointer that dipped
     // off the bar and came back cannot reveal indicators it never pointed at.
-    onTriggered: if (!root.centerSectionHovered && !root.barHovered) root.centerSectionRevealHeld = false
+    // A center popout grabs the pointer, which reads as an un-hover: keep the
+    // widgets while it's open, and on close give the pointer's re-enter the
+    // timer window to cancel the collapse instead of collapsing at once.
+    onTriggered: if (!root.centerSectionHovered && !root.barHovered && !root.popoutBelongsToRegion("center")) root.centerSectionRevealHeld = false
   }
+  onActivePopoutChanged: if (!activePopout) centerSectionRevealTimer.restart()
 
   function run(command) {
     if (!command) return
@@ -1830,7 +1838,7 @@ Item {
 
     visible: !remapGuard.remapping
     exclusionMode: root.barHidden ? ExclusionMode.Ignore : ExclusionMode.Normal
-    WlrLayershell.exclusiveZone: root.barHidden ? 0 : root.islandHeight
+    WlrLayershell.exclusiveZone: root.barHidden ? 0 : root.islandHeight + root.islandGap
     color: "transparent"
     surfaceFormat.opaque: false
     WlrLayershell.namespace: "omarchy-bar"
@@ -1846,7 +1854,7 @@ Item {
       top: root.barHidden ? -(root.islandHeight + 20) : 0
     }
 
-    implicitHeight: root.islandHeight + 12
+    implicitHeight: root.islandHeight + root.islandGap + 12
 
     ScreenMoveRemap {
       id: remapGuard
@@ -1872,7 +1880,7 @@ Item {
         x: leftNotch.contentWidth > 0 ? Math.floor(leftNotch.x) : 0
         y: 0
         width: leftNotch.contentWidth > 0 ? Math.ceil(leftNotch.width + 4) : 0
-        height: leftNotch.contentWidth > 0 ? Math.ceil(leftNotch.height + 4) : 0
+        height: leftNotch.contentWidth > 0 ? Math.ceil(leftNotch.y + leftNotch.height + 4) : 0
       }
 
       // 2. Right Notch body
@@ -1881,7 +1889,7 @@ Item {
         x: rightNotch.contentWidth > 0 ? Math.floor(rightNotch.x) : 0
         y: 0
         width: rightNotch.contentWidth > 0 ? Math.ceil(rightNotch.width + 4) : 0
-        height: rightNotch.contentWidth > 0 ? Math.ceil(rightNotch.height + 4) : 0
+        height: rightNotch.contentWidth > 0 ? Math.ceil(rightNotch.y + rightNotch.height + 4) : 0
       }
     }
 
@@ -1890,18 +1898,21 @@ Item {
       id: leftNotch
       z: 10
       anchors.top: parent.top
+      anchors.topMargin: root.islandGap
       anchors.left: root.leftIslandAttach === "left" && !root.isDraggingIsland ? parent.left : undefined
       x: root.leftIslandAttach === "left" ? 0 : (root.leftIslandAttach === "right" ? Math.max(0, barWindow.width - leftNotch.width) : Math.max(0, Math.min(barWindow.width - leftNotch.width, root.leftIslandX)))
       y: 0
       attachSide: root.leftIslandAttach
       radius: 8
-      visible: contentWidth > 0
+      // Hidden via opacity, not visible: an invisible notch makes its widgets
+      // report zero width, so the rendered-width check below could never recover.
+      visible: true
       opacity: contentWidth > 0 ? 1.0 : 0.0
-      color: Qt.rgba(Color.bar.background.r, Color.bar.background.g, Color.bar.background.b, 0.50)
+      color: Color.bar.background
       borderColor: Qt.rgba(root.themeForeground.r, root.themeForeground.g, root.themeForeground.b, 0.18)
       borderWidth: 1
       contentWidth: {
-        var hasWidgets = leftModules.entries && leftModules.entries.length > 0
+        var hasWidgets = leftModules.entries && leftModules.entries.length > 0 && leftModules.implicitWidth > 0
         var isDragging = root.barDragSource !== null
         if (!hasWidgets && !isDragging) return 0
         return Math.max(hasWidgets ? 60 : 76, leftModules.implicitWidth + Style.space(12))
@@ -1963,7 +1974,9 @@ Item {
         anchors.top: parent.top
         height: root.islandHeight
         anchors.left: leftNotch.attachSide === "left" ? parent.left : undefined
+        anchors.leftMargin: leftNotch.attachSide === "left" ? leftNotch.radius : 0 // edge gap, see NotchSurface
         anchors.right: leftNotch.attachSide === "right" ? parent.right : undefined
+        anchors.rightMargin: leftNotch.attachSide === "right" ? leftNotch.radius : 0
         anchors.horizontalCenter: leftNotch.attachSide === "none" ? parent.horizontalCenter : undefined
         width: leftNotch.contentWidth
 
@@ -1975,7 +1988,7 @@ Item {
           anchors.rightMargin: leftNotch.attachSide === "right" ? 6 : 0
           anchors.horizontalCenter: leftNotch.attachSide === "none" ? parent.horizontalCenter : undefined
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: -2
+          anchors.verticalCenterOffset: 0 // was -2 for the edge-attached notch; floating islands center content
         }
       }
     }
@@ -1985,18 +1998,19 @@ Item {
       id: rightNotch
       z: 10
       anchors.top: parent.top
+      anchors.topMargin: root.islandGap
       anchors.right: root.rightIslandAttach === "right" && !root.isDraggingIsland ? parent.right : undefined
       x: root.rightIslandAttach === "right" ? Math.max(0, barWindow.width - rightNotch.width) : (root.rightIslandAttach === "left" ? 0 : Math.max(0, Math.min(barWindow.width - rightNotch.width, root.rightIslandX < 0 ? (barWindow.width - rightNotch.width) : root.rightIslandX)))
       y: 0
       attachSide: root.rightIslandAttach
       radius: 8
-      visible: contentWidth > 0
+      visible: true // see leftNotch
       opacity: contentWidth > 0 ? 1.0 : 0.0
-      color: Qt.rgba(Color.bar.background.r, Color.bar.background.g, Color.bar.background.b, 0.50)
+      color: Color.bar.background
       borderColor: Qt.rgba(root.themeForeground.r, root.themeForeground.g, root.themeForeground.b, 0.18)
       borderWidth: 1
       contentWidth: {
-        var hasWidgets = rightModules.entries && rightModules.entries.length > 0
+        var hasWidgets = rightModules.entries && rightModules.entries.length > 0 && rightModules.implicitWidth > 0
         var isDragging = root.barDragSource !== null
         if (!hasWidgets && !isDragging) return 0
         return Math.max(hasWidgets ? 60 : 76, rightModules.implicitWidth + Style.space(12))
@@ -2058,7 +2072,9 @@ Item {
         anchors.top: parent.top
         height: root.islandHeight
         anchors.left: rightNotch.attachSide === "left" ? parent.left : undefined
+        anchors.leftMargin: rightNotch.attachSide === "left" ? rightNotch.radius : 0 // edge gap, see NotchSurface
         anchors.right: rightNotch.attachSide === "right" ? parent.right : undefined
+        anchors.rightMargin: rightNotch.attachSide === "right" ? rightNotch.radius : 0
         anchors.horizontalCenter: rightNotch.attachSide === "none" ? parent.horizontalCenter : undefined
         width: rightNotch.contentWidth
 
@@ -2070,7 +2086,7 @@ Item {
           anchors.leftMargin: rightNotch.attachSide === "left" ? 6 : 0
           anchors.horizontalCenter: rightNotch.attachSide === "none" ? parent.horizontalCenter : undefined
           anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: -2
+          anchors.verticalCenterOffset: 0 // was -2 for the edge-attached notch; floating islands center content
         }
       }
     }
@@ -2170,7 +2186,16 @@ Item {
       top: (root.barHidden && !centerWindow.isExpanded) ? -200 : 0
     }
 
-    implicitHeight: centerWindow.isExpanded ? (screen ? screen.height : 0) : Math.ceil(centerIslandItem.implicitHeight + 8)
+    // Never bind window height to the animating island: resizing the layer
+    // surface every frame makes the notch stutter. Fixed 100 fits every
+    // non-expanded mode (max 80 content + 8 fillet); the mask limits input
+    // to the island. Hold full height until the collapse (max 550ms) ends.
+    // ponytail: 100 is hardcoded, raise it if a taller non-expanded mode is added
+    property bool collapsing: false
+    onIsExpandedChanged: if (!isExpanded) { collapsing = true; collapseTimer.restart() }
+    Timer { id: collapseTimer; interval: 590; onTriggered: centerWindow.collapsing = false }
+
+    implicitHeight: (centerWindow.isExpanded || centerWindow.collapsing) ? (screen ? screen.height : 0) : 100
 
     // Full screen click-outside dismissal scrim when menu, search, or history is open
     MouseArea {
@@ -2196,6 +2221,7 @@ Item {
       root: centerWindow.barPluginRoot
       barWindow: centerWindow
       anchors.top: parent.top
+      anchors.topMargin: barPluginRoot ? barPluginRoot.islandGap : 0
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.horizontalCenterOffset: {
         if (!barPluginRoot) return 0
@@ -2516,9 +2542,8 @@ Item {
     width: implicitWidth
     height: implicitHeight
 
-    HoverHandler {
-      onHoveredChanged: root.setCenterSectionHovered(hovered)
-    }
+    // Hover is tracked on the whole CenterIsland (islandHoverHandler), not here:
+    // this row hides during OSD modes, which would read as the pointer leaving.
 
     Row {
       id: centerRow
@@ -2538,7 +2563,7 @@ Item {
       }
 
       ModuleList {
-        visible: centerRoot.hasAnchor
+        visible: centerRoot.hasAnchor && root.centerSectionRevealHeld // clock only until hovered
         entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
         region: "center"
       }
@@ -2550,7 +2575,7 @@ Item {
       }
 
       ModuleList {
-        visible: centerRoot.hasAnchor
+        visible: centerRoot.hasAnchor && root.centerSectionRevealHeld // clock only until hovered
         entries: root.entriesAfter(centerRoot.entries, root.centerAnchor)
         region: "center"
       }
@@ -2747,8 +2772,23 @@ Item {
       onLoaded: {
         slot.injectProps()
         Qt.callLater(slot.injectProps)
+        if (slot.moduleName === "omarchy.clock") slot.boldLabels(item)
       }
     }
+
+    // The stock clock's WidgetButton has no weight setting, so bold its Text
+    // children directly. ponytail: relies on WidgetButton using a plain Text.
+    function boldLabels(it) {
+      if (!it) return
+      if (it.font !== undefined && it.text !== undefined) it.font.weight = slot.clockWeight
+      // Forward the clock button's wheel to the island so scroll-for-volume works over it
+      if (it.wheelMoved !== undefined && slot.region === "center") it.wheelMoved.connect(function(delta) {
+        var island = root.activeCenterIsland()
+        if (island) island.handleWheel(delta)
+      })
+      for (var i = 0; i < it.children.length; i++) boldLabels(it.children[i])
+    }
+    readonly property int clockWeight: Font.Bold
 
     Loader {
       id: qmlLoader

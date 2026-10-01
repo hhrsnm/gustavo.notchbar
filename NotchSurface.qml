@@ -24,153 +24,53 @@ Item {
   width: implicitWidth
   height: implicitHeight
 
+  readonly property real x0: attachSide === "right" ? 0 : radius
+  readonly property real x1: attachSide === "left" ? width : width - radius
+
   // Translucent Frosted Base Fill & Optical Border (Zero-FBO vector rasterization)
   Shape {
     id: fillShape
     anchors.fill: parent
     antialiasing: true
+    preferredRendererType: Shape.CurveRenderer
 
+    // Floating island: a plain rounded rectangle, no fillet wings. The old wing
+    // space stays in the width (transparent) so layout doesn't shift; on a
+    // screen-attached side it becomes the gap from the screen edge.
     ShapePath {
       strokeColor: "transparent"
       strokeWidth: 0
       fillColor: notch.color
 
-      startX: 0
+      startX: notch.x0 + notch.radius
       startY: 0
 
-      // --- Left side ---
-      PathLine {
-        x: 0
-        y: notch.attachSide === "left" ? (notch.contentHeight + notch.radius) : 0
-      }
-
-      PathCubic {
-        x: notch.attachSide === "left" ? notch.radius : notch.radius
-        y: notch.attachSide === "left" ? notch.contentHeight : notch.radius
-        control1X: notch.attachSide === "left" ? 0 : notch.radius * 0.55
-        control1Y: notch.attachSide === "left" ? (notch.contentHeight + notch.radius * 0.45) : 0
-        control2X: notch.attachSide === "left" ? notch.radius * 0.45 : notch.radius
-        control2Y: notch.attachSide === "left" ? notch.contentHeight : notch.radius * 0.45
-      }
-
-      PathLine {
-        x: notch.attachSide === "left" ? notch.radius : notch.radius
-        y: notch.attachSide === "left" ? notch.contentHeight : Math.max(notch.radius, notch.contentHeight - notch.radius)
-      }
-
-      PathCubic {
-        x: notch.attachSide === "left" ? notch.radius : notch.radius * 2
-        y: notch.contentHeight
-        control1X: notch.attachSide === "left" ? notch.radius : notch.radius
-        control1Y: notch.attachSide === "left" ? notch.contentHeight : (notch.contentHeight - notch.radius * 0.45)
-        control2X: notch.attachSide === "left" ? notch.radius : notch.radius * 1.45
-        control2Y: notch.contentHeight
-      }
-
-      // --- Bottom edge ---
-      PathLine {
-        x: notch.attachSide === "right" ? Math.max(notch.radius * 2, notch.width - notch.radius) : Math.max(notch.radius * 2, notch.width - notch.radius * 2)
-        y: notch.contentHeight
-      }
-
-      // --- Right side ---
-      PathCubic {
-        x: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        y: notch.attachSide === "right" ? (notch.contentHeight + notch.radius) : Math.max(notch.radius, notch.contentHeight - notch.radius)
-        control1X: notch.attachSide === "right" ? (notch.width - notch.radius * 0.45) : (notch.width - notch.radius * 1.45)
-        control1Y: notch.attachSide === "right" ? notch.contentHeight : notch.contentHeight
-        control2X: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        control2Y: notch.attachSide === "right" ? (notch.contentHeight + notch.radius * 0.45) : (notch.contentHeight - notch.radius * 0.45)
-      }
-
-      PathLine {
-        x: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        y: notch.attachSide === "right" ? 0 : notch.radius
-      }
-
-      PathCubic {
-        x: notch.width
-        y: 0
-        control1X: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        control1Y: notch.attachSide === "right" ? 0 : (notch.radius * 0.45)
-        control2X: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius * 0.55)
-        control2Y: 0
-      }
-
-      PathLine {
-        x: 0
-        y: 0
-      }
+      PathLine { x: notch.x1 - notch.radius; y: 0 }
+      PathArc { x: notch.x1; y: notch.radius; radiusX: notch.radius; radiusY: notch.radius }
+      PathLine { x: notch.x1; y: notch.contentHeight - notch.radius }
+      PathArc { x: notch.x1 - notch.radius; y: notch.contentHeight; radiusX: notch.radius; radiusY: notch.radius }
+      PathLine { x: notch.x0 + notch.radius; y: notch.contentHeight }
+      PathArc { x: notch.x0; y: notch.contentHeight - notch.radius; radiusX: notch.radius; radiusY: notch.radius }
+      PathLine { x: notch.x0; y: notch.radius }
+      PathArc { x: notch.x0 + notch.radius; y: 0; radiusX: notch.radius; radiusY: notch.radius }
     }
 
-    // 3. Glass Refraction Rim / Optical Border
     ShapePath {
       strokeColor: notch.borderWidth > 0 ? notch.borderColor : "transparent"
       strokeWidth: notch.borderWidth
       fillColor: "transparent"
-      capStyle: ShapePath.RoundCap
 
-      startX: 0
+      startX: notch.x0 + notch.radius
       startY: 0
 
-      // --- Left side ---
-      PathLine {
-        x: 0
-        y: notch.attachSide === "left" ? (notch.contentHeight + notch.radius) : 0
-      }
-
-      PathCubic {
-        x: notch.attachSide === "left" ? notch.radius : notch.radius
-        y: notch.attachSide === "left" ? notch.contentHeight : notch.radius
-        control1X: notch.attachSide === "left" ? 0 : notch.radius * 0.55
-        control1Y: notch.attachSide === "left" ? (notch.contentHeight + notch.radius * 0.45) : 0
-        control2X: notch.attachSide === "left" ? notch.radius * 0.45 : notch.radius
-        control2Y: notch.attachSide === "left" ? notch.contentHeight : notch.radius * 0.45
-      }
-
-      PathLine {
-        x: notch.attachSide === "left" ? notch.radius : notch.radius
-        y: notch.attachSide === "left" ? notch.contentHeight : Math.max(notch.radius, notch.contentHeight - notch.radius)
-      }
-
-      PathCubic {
-        x: notch.attachSide === "left" ? notch.radius : notch.radius * 2
-        y: notch.contentHeight
-        control1X: notch.attachSide === "left" ? notch.radius : notch.radius
-        control1Y: notch.attachSide === "left" ? notch.contentHeight : (notch.contentHeight - notch.radius * 0.45)
-        control2X: notch.attachSide === "left" ? notch.radius : notch.radius * 1.45
-        control2Y: notch.contentHeight
-      }
-
-      // --- Bottom edge ---
-      PathLine {
-        x: notch.attachSide === "right" ? Math.max(notch.radius * 2, notch.width - notch.radius) : Math.max(notch.radius * 2, notch.width - notch.radius * 2)
-        y: notch.contentHeight
-      }
-
-      // --- Right side ---
-      PathCubic {
-        x: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        y: notch.attachSide === "right" ? (notch.contentHeight + notch.radius) : Math.max(notch.radius, notch.contentHeight - notch.radius)
-        control1X: notch.attachSide === "right" ? (notch.width - notch.radius * 0.45) : (notch.width - notch.radius * 1.45)
-        control1Y: notch.attachSide === "right" ? notch.contentHeight : notch.contentHeight
-        control2X: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        control2Y: notch.attachSide === "right" ? (notch.contentHeight + notch.radius * 0.45) : (notch.contentHeight - notch.radius * 0.45)
-      }
-
-      PathLine {
-        x: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        y: notch.attachSide === "right" ? 0 : notch.radius
-      }
-
-      PathCubic {
-        x: notch.width
-        y: 0
-        control1X: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius)
-        control1Y: notch.attachSide === "right" ? 0 : (notch.radius * 0.45)
-        control2X: notch.attachSide === "right" ? notch.width : (notch.width - notch.radius * 0.55)
-        control2Y: 0
-      }
+      PathLine { x: notch.x1 - notch.radius; y: 0 }
+      PathArc { x: notch.x1; y: notch.radius; radiusX: notch.radius; radiusY: notch.radius }
+      PathLine { x: notch.x1; y: notch.contentHeight - notch.radius }
+      PathArc { x: notch.x1 - notch.radius; y: notch.contentHeight; radiusX: notch.radius; radiusY: notch.radius }
+      PathLine { x: notch.x0 + notch.radius; y: notch.contentHeight }
+      PathArc { x: notch.x0; y: notch.contentHeight - notch.radius; radiusX: notch.radius; radiusY: notch.radius }
+      PathLine { x: notch.x0; y: notch.radius }
+      PathArc { x: notch.x0 + notch.radius; y: 0; radiusX: notch.radius; radiusY: notch.radius }
     }
   }
 }

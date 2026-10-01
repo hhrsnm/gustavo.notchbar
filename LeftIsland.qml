@@ -20,7 +20,7 @@ Item {
   NotchSurface {
     id: notchSurface
     radius: 12
-    color: root.transparent ? Qt.rgba(Color.bar.background.r, Color.bar.background.g, Color.bar.background.b, 0.94) : Color.bar.background
+    color: Color.bar.background
     borderColor: Qt.rgba(root.themeForeground.r, root.themeForeground.g, root.themeForeground.b, 0.22)
     borderWidth: 1
     contentWidth: leftIsland.contentWidth

@@ -97,9 +97,29 @@ Item {
 
   readonly property bool isHovered: islandHoverHandler.hovered
 
+  // Hover only reveals the center widgets while idle (clock). In other modes the
+  // island is big, so a pointer over e.g. the menu's bottom would otherwise turn
+  // the reveal on and the collapse would land on the widget-expanded notch.
+  // `hovered` can stay stale after the island shrinks under a still pointer, so
+  // on return to idle also check the last pointer position against the idle notch.
+  function pointerOverIdleNotch() {
+    var p = islandHoverHandler.point.scenePosition
+    var c = mapToItem(null, width / 2, 0)
+    return Math.abs(p.x - c.x) <= clockContentWidth / 2 && p.y >= c.y && p.y <= c.y + clockContentHeight
+  }
+  function syncIdleHover() {
+    // Short OSDs (volume, brightness...) leave the reveal alone: collapsing the
+    // widgets while the OSD grows in made the two animations fight. It's
+    // re-checked when the OSD ends and the mode returns to clock.
+    if (isOsdActive && osdMode !== "" && currentMode === osdMode) return
+    if (root) root.setCenterSectionHovered(currentMode === "clock" && islandHoverHandler.hovered && pointerOverIdleNotch())
+  }
+  onCurrentModeChanged: syncIdleHover()
+
   HoverHandler {
     id: islandHoverHandler
     onHoveredChanged: {
+      centerIsland.syncIdleHover()
       if (hovered) {
         mediaLeaveTimer.stop()
       } else {
@@ -229,6 +249,8 @@ Item {
 
   Component.onCompleted: {
     brightnessQueryProc.running = true
+    sizeFromW = sizeToW = targetContentWidth
+    sizeFromH = sizeToH = targetContentHeight
   }
 
   function isDedicatedMusicPlayer(player) {
@@ -871,7 +893,22 @@ Item {
     }
   }
 
+  // Theme and background open the in-notch picker instead of the stock switchers
+  function openPickerFor(id) {
+    var k = id === "style.theme" ? "theme" : (id === "style.background" ? "background" : "")
+    if (!k) return false
+    centerIsland.menuOpenInternal = true
+    if (root) {
+      root.isMenuOpen = true
+      root.isSearchOpen = false
+      root.isHistoryOpen = false
+    }
+    notchPicker.open(k)
+    return true
+  }
+
   function applySelected(id, action) {
+    if (centerIsland.openPickerFor(id)) return
     centerIsland.closeMenu()
     if (action) {
       Util.execDetached(action)
@@ -906,6 +943,7 @@ Item {
   function openRoute(initialMenu) {
     var id = MenuModel.resolveRoute(centerIsland.items, centerIsland.itemOrder, initialMenu)
     var entry = MenuModel.item(centerIsland.items, id)
+    if (centerIsland.openPickerFor(id)) return "ok"
     if (entry && entry.kind === "action" && entry.action) {
       centerIsland.closeMenu()
       Util.execDetached(entry.action)
@@ -972,6 +1010,10 @@ Item {
     var targetRoute = route || "root"
     var resolvedId = MenuModel.resolveRoute(centerIsland.items, centerIsland.itemOrder, targetRoute)
     if (centerIsland.isMenuOpen) {
+      if (notchPicker.kind !== "" && resolvedId === "style." + notchPicker.kind) {
+        centerIsland.closeMenu()
+        return
+      }
       if (targetRoute === "root" || centerIsland.activeMenu === resolvedId || centerIsland.activeMenu === targetRoute) {
         centerIsland.closeMenu()
       } else {
@@ -983,6 +1025,7 @@ Item {
   }
 
   function closeMenu() {
+    notchPicker.revert()
     if (!centerIsland.menuOpenInternal && !(root && (root.isMenuOpen || root.isSearchOpen))) {
       return
     }
@@ -1039,6 +1082,7 @@ Item {
 
   // Current display mode
   readonly property string currentMode: {
+    if (centerIsland.isMenuOpen && notchPicker.kind !== "") return "picker"
     if (centerIsland.isMenuOpen) return "menu"
     if (centerIsland.isHistoryOpen) return "history"
     if (isOsdActive && osdMode !== "") return osdMode
@@ -1048,6 +1092,45 @@ Item {
   }
 
   // Dynamic adaptive sizing
+  // Modules report width 0 while clockView is hidden (invisible Row children don't
+  // count), so remember the last width seen while visible. Otherwise the collapse
+  // aims at a 90px stub, then grows once the clock fades in.
+  property real idleModulesWidth: 70
+  onCenterModulesWidthChanged: if (clockView.visible) idleModulesWidth = centerModulesWidth > 0 ? centerModulesWidth : 70
+  readonly property real clockContentWidth: Math.max(90, idleModulesWidth + 20)
+  readonly property real clockContentHeight: 35
+
+  // Width and height share one progress value `sizeT`, so the notch resizes
+  // diagonally like a window corner drag: same start, same curve, same end.
+  // Collapse to the clock matches the 200ms open speed.
+  function collapseDuration(fromW, fromH) { return 200 }
+
+  property real sizeFromW: 0
+  property real sizeFromH: 0
+  property real sizeToW: 0
+  property real sizeToH: 0
+  property real sizeT: 1
+  readonly property real animContentWidth: sizeFromW + (sizeToW - sizeFromW) * sizeT
+  readonly property real animContentHeight: sizeFromH + (sizeToH - sizeFromH) * sizeT
+
+  // Width and height targets change in separate signals of the same tick; the
+  // second call restarts at sizeT 0, so it captures the same start size.
+  function retargetSize() {
+    var w = animContentWidth, h = animContentHeight
+    sizeFromW = w
+    sizeFromH = h
+    sizeToW = targetContentWidth
+    sizeToH = targetContentHeight
+    sizeAnim.duration = (sizeToW === clockContentWidth && sizeToH === clockContentHeight)
+      ? collapseDuration(w, h) : 200
+    sizeT = 0
+    sizeAnim.restart()
+  }
+  onTargetContentWidthChanged: retargetSize()
+  onTargetContentHeightChanged: retargetSize()
+
+  NumberAnimation { id: sizeAnim; target: centerIsland; property: "sizeT"; from: 0; to: 1; duration: 200; easing.type: Easing.OutCubic }
+
   readonly property real targetContentWidth: {
     switch (currentMode) {
       case "menu":
@@ -1059,13 +1142,14 @@ Item {
         }
         return 340
       case "history": return 480
+      case "picker": return 800
       case "volume":
       case "brightness": return 300
       case "media-action": return Math.min(360, Math.max(180, mediaActionRow.implicitWidth + 32))
       case "notification": return 400
       case "media": return 440
-      case "date-clock": return Math.max(230, centerModulesWidth + 24)
-      case "clock": default: return Math.max(90, (centerModulesWidth > 0 ? centerModulesWidth : 70) + 20)
+      case "date-clock": return Math.max(230, idleModulesWidth + 24)
+      case "clock": default: return clockContentWidth
     }
   }
 
@@ -1087,13 +1171,14 @@ Item {
         return Math.min(maxMenuH, Math.max(140, neededH))
       }
       case "history": return 400
+      case "picker": return 180
       case "volume":
       case "brightness":
       case "media-action": return 36
       case "notification": return 68
       case "media": return 80
       case "date-clock": return 40
-      case "clock": default: return 30
+      case "clock": default: return clockContentHeight
     }
   }
 
@@ -1175,23 +1260,15 @@ Item {
     radius: 8
     clip: true
     attachSide: (root && root.centerIslandAttach) ? root.centerIslandAttach : "none"
-    color: centerIsland.currentMode === "menu" ? Color.bar.background : Qt.rgba(Color.bar.background.r, Color.bar.background.g, Color.bar.background.b, 0.50)
+    color: Color.bar.background
     shadowEnabled: centerIsland.currentMode !== "menu"
     borderColor: Qt.rgba(centerIsland.islandThemeForeground.r, centerIsland.islandThemeForeground.g, centerIsland.islandThemeForeground.b, 0.18)
     borderWidth: 1
-    contentWidth: centerIsland.targetContentWidth
-    contentHeight: centerIsland.targetContentHeight
+    contentWidth: centerIsland.animContentWidth
+    contentHeight: centerIsland.animContentHeight
 
     Behavior on color {
       ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
-    }
-
-    Behavior on contentWidth {
-      NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
-    }
-
-    Behavior on contentHeight {
-      NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
     }
 
     // Inner content area between fillets
@@ -1210,14 +1287,22 @@ Item {
         visible: opacity > 0.01
         opacity: centerIsland.currentMode === "clock" ? 1.0 : 0.0
 
+        // Fade in so it finishes with the collapse, so the clock
+        // doesn't appear inside a still-large notch.
         Behavior on opacity {
-          NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+          id: clockFadeBehavior
+          onTargetValueChanged: clockFadePause.duration = targetValue > 0.5
+            ? Math.max(0, centerIsland.collapseDuration(centerIsland.animContentWidth, centerIsland.animContentHeight) - 180) : 0
+          SequentialAnimation {
+            PauseAnimation { id: clockFadePause; duration: 0 }
+            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+          }
         }
 
         Row {
           id: idleRow
           anchors.centerIn: parent
-          anchors.verticalCenterOffset: -2
+          anchors.verticalCenterOffset: 0 // was -2 for the edge-attached notch; floating islands center content
           spacing: 6
 
           Loader {
@@ -1519,6 +1604,26 @@ Item {
         }
       }
 
+      // ------------------------------------------------------------- Theme / Background picker
+      NotchPicker {
+        id: notchPicker
+        anchors.fill: parent
+        anchors.leftMargin: 16
+        anchors.rightMargin: 16
+        anchors.topMargin: 12
+        anchors.bottomMargin: 8
+        visible: opacity > 0.01
+        opacity: centerIsland.currentMode === "picker" ? 1.0 : 0.0
+        foreground: centerIsland.islandForeground
+        accent: Color.accent || centerIsland.islandForeground
+        onDone: centerIsland.closeMenu()
+        onCancelled: centerIsland.closeMenu()
+
+        Behavior on opacity {
+          NumberAnimation { duration: 140; easing.type: Easing.OutQuad }
+        }
+      }
+
       // ------------------------------------------------------------- Mode 4: Volume OSD Slider Pill
       Item {
         id: volumeView
@@ -1551,11 +1656,14 @@ Item {
 
             Rectangle {
               height: parent.height
-              width: parent.width * Math.min(1.0, Math.max(0.0, centerIsland.isMuted ? 0 : centerIsland.currentVolume))
+              // Animate the level, not the width: a width Behavior lagged behind the
+              // track resizing with the island, so the fill overran the % label.
+              property real level: Math.min(1.0, Math.max(0.0, centerIsland.isMuted ? 0 : centerIsland.currentVolume))
+              width: parent.width * level
               radius: 3
               color: Color.accent || Qt.rgba(0.2, 0.8, 0.7, 1.0)
 
-              Behavior on width {
+              Behavior on level {
                 NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
               }
             }
@@ -1605,11 +1713,14 @@ Item {
 
             Rectangle {
               height: parent.height
-              width: parent.width * Math.min(1.0, Math.max(0.0, centerIsland.currentBrightness / 100.0))
+              // Animate the level, not the width: a width Behavior lagged behind the
+              // track resizing with the island, so the fill overran the % label.
+              property real level: Math.min(1.0, Math.max(0.0, centerIsland.currentBrightness / 100.0))
+              width: parent.width * level
               radius: 3
               color: Color.accent || Qt.rgba(1.0, 0.8, 0.2, 1.0)
 
-              Behavior on width {
+              Behavior on level {
                 NumberAnimation { duration: 100; easing.type: Easing.OutCubic }
               }
             }
@@ -2568,7 +2679,14 @@ Item {
     visible: !centerIsland.isMenuOpen
     z: -1
 
-    onWheel: function(wheel) {
+    onWheel: function(wheel) { centerIsland.handleWheel(wheel.angleDelta.y) }
+  }
+
+  // Also called by the clock widget (see Bar.qml boldLabels): its button eats
+  // wheel events, and in clock-only mode it covers almost the whole notch.
+  function handleWheel(deltaY) {
+    var wheel = { angleDelta: { y: deltaY } }
+    {
       if (centerIsland.currentMode === "media") {
         if (wheel.angleDelta.y > 0) {
           centerIsland.isMediaOpen = false
