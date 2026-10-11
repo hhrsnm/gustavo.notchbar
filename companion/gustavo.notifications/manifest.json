@@ -6,13 +6,21 @@
   "author": "Omarchy",
   "description": "Notification daemon, popups, DND, and history",
   "kinds": [
-    "service"
+    "service",
+    "bar-widget"
   ],
   "keepLoaded": true,
   "entryPoints": {
-    "service": "Service.qml"
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
   },
   "omarchy": {
     "clonedFrom": "omarchy.notifications"
+  },
+  "barWidget": {
+    "displayName": "Notifications",
+    "description": "Notification bell: opens the notch history, right click toggles DND",
+    "category": "System",
+    "allowMultiple": false
   }
 }
