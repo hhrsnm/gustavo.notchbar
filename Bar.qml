@@ -594,6 +594,7 @@ Item {
   property bool useTransparentForeground: false
   property bool transparent: false
   property bool centerSectionHovered: false
+  property string centerSectionRevealScreen: "" // screen whose notch turned the hover reveal on
   // One bar surface exists per monitor and each reports into this count, so a
   // pointer crossing from one monitor's bar to another's stays counted however
   // the enter and leave interleave. A single shared bool would be left false by
@@ -2164,7 +2165,8 @@ Item {
     readonly property bool isSearchOpen: barPluginRoot ? barPluginRoot.isSearchOpen : false
     readonly property bool isMenuOpen: barPluginRoot ? barPluginRoot.isMenuOpen : false
     readonly property bool isHistoryOpen: barPluginRoot ? barPluginRoot.isHistoryOpen : false
-    readonly property bool isExpanded: isSearchOpen || isMenuOpen || isHistoryOpen
+    // Per screen: only expand (full-screen scrim + keyboard grab) for this screen's own open notch
+    readonly property bool isExpanded: centerIslandItem ? (centerIslandItem.isMenuOpen || centerIslandItem.isHistoryOpen) : false
     readonly property bool isIdle: centerIslandItem ? (centerIslandItem.currentMode === "clock") : true
 
     visible: true
@@ -2282,7 +2284,7 @@ Item {
       }
 
       centerModulesComponent: Component {
-        CenterModules {}
+        CenterModules { island: centerIslandItem }
       }
 
       Component.onCompleted: {
@@ -2533,6 +2535,12 @@ Item {
   component CenterModules: Item {
     id: centerRoot
 
+    property var island: null
+    // Hover reveal is shared state; only the focused monitor's notch shows it
+    // (and only the notch that was hovered: the reveal lingers ~300ms after the
+    // pointer leaves, which must not expand the other monitor's notch)
+    readonly property bool revealed: root.centerSectionRevealHeld && (!island || (island.isFocusedScreen && island.screenName === root.centerSectionRevealScreen))
+
     property var entries: root.layoutEntries("center")
     readonly property bool hasAnchor: root.entryIndex(entries, root.centerAnchor) !== -1
     readonly property var anchorEntry: root.findCenterAnchorEntry()
@@ -2563,7 +2571,7 @@ Item {
       }
 
       ModuleList {
-        visible: centerRoot.hasAnchor && root.centerSectionRevealHeld // clock only until hovered
+        visible: centerRoot.hasAnchor && centerRoot.revealed // clock only until hovered
         entries: root.entriesBefore(centerRoot.entries, root.centerAnchor)
         region: "center"
       }
@@ -2575,7 +2583,7 @@ Item {
       }
 
       ModuleList {
-        visible: centerRoot.hasAnchor && root.centerSectionRevealHeld // clock only until hovered
+        visible: centerRoot.hasAnchor && centerRoot.revealed // clock only until hovered
         entries: root.entriesAfter(centerRoot.entries, root.centerAnchor)
         region: "center"
       }

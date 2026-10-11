@@ -18,7 +18,25 @@ Item {
   readonly property real centerModulesWidth: centerModulesItem ? Math.ceil(centerModulesItem.implicitWidth) : 0
 
   readonly property bool isSearchOpen: root ? root.isSearchOpen : false
-  readonly property bool isHistoryOpen: root ? root.isHistoryOpen : false
+  // Multi-monitor: there is one notch per screen but one shared root state.
+  // Menus, history and OSDs only show on the notch of the focused monitor (and
+  // menus only on the notch that opened them); notifications show everywhere.
+  readonly property string screenName: (barWindow && barWindow.screen) ? String(barWindow.screen.name || "") : ""
+  readonly property bool isFocusedScreen: (root && barWindow && barWindow.screen) ? String(barWindow.screen.name || "") === root.focusedScreenName() : true
+  property bool historyHere: false
+  readonly property bool isHistoryOpen: historyHere
+  Connections {
+    target: centerIsland.root
+    function onIsHistoryOpenChanged() { centerIsland.historyHere = centerIsland.root.isHistoryOpen && centerIsland.isFocusedScreen }
+  }
+
+  // Opening a menu here closes one left open on another monitor
+  function claimMenu() {
+    var list = (root && root.centerIslandInstances) ? root.centerIslandInstances : []
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i] !== centerIsland && list[i].menuOpenInternal) list[i].closeMenu()
+    }
+  }
   readonly property bool isFullscreen: root ? root.isFullscreenActive : false
   readonly property color islandForeground: (root && root.barForeground) ? root.barForeground : Color.bar.text
   readonly property color islandThemeForeground: (root && root.themeForeground) ? root.themeForeground : Color.foreground
@@ -108,13 +126,20 @@ Item {
     return Math.abs(p.x - c.x) <= clockContentWidth / 2 && p.y >= c.y && p.y <= c.y + clockContentHeight
   }
   function syncIdleHover() {
+    // Only the focused monitor's notch reports hover; the reveal state is shared,
+    // so an unfocused notch reporting would toggle the focused one's widgets.
+    if (!isFocusedScreen) return
     // Short OSDs (volume, brightness...) leave the reveal alone: collapsing the
     // widgets while the OSD grows in made the two animations fight. It's
     // re-checked when the OSD ends and the mode returns to clock.
     if (isOsdActive && osdMode !== "" && currentMode === osdMode) return
-    if (root) root.setCenterSectionHovered(currentMode === "clock" && islandHoverHandler.hovered && pointerOverIdleNotch())
+    if (!root) return
+    var h = currentMode === "clock" && islandHoverHandler.hovered && pointerOverIdleNotch()
+    if (h) root.centerSectionRevealScreen = screenName
+    root.setCenterSectionHovered(h)
   }
   onCurrentModeChanged: syncIdleHover()
+  onIsFocusedScreenChanged: syncIdleHover()
 
   HoverHandler {
     id: islandHoverHandler
@@ -198,12 +223,14 @@ Item {
   property string mediaOsdIcon: "󰐊"
 
   function triggerOsd(mode) {
+    if (!centerIsland.isFocusedScreen) return
     if (centerIsland.isMenuOpen || centerIsland.isHistoryOpen) return
     osdMode = mode
     osdTimer.restart()
   }
 
   function handleExternalOsd(data) {
+    if (!centerIsland.isFocusedScreen) return
     if (!data || centerIsland.isMenuOpen || centerIsland.isHistoryOpen) return
     var key = String(data.iconKey || "").toLowerCase()
     var msg = String(data.message || "")
@@ -374,7 +401,7 @@ Item {
   property int selectedIndex: 0
   property bool cursorActive: true
   property bool menuOpenInternal: false
-  readonly property bool isMenuOpen: (root && root.isMenuOpen) || menuOpenInternal || isSearchOpen
+  readonly property bool isMenuOpen: menuOpenInternal || (isSearchOpen && isFocusedScreen)
 
   property var whenResults: ({})
   property var checkedResults: ({})
@@ -897,6 +924,7 @@ Item {
   function openPickerFor(id) {
     var k = id === "style.theme" ? "theme" : (id === "style.background" ? "background" : "")
     if (!k) return false
+    centerIsland.claimMenu()
     centerIsland.menuOpenInternal = true
     if (root) {
       root.isMenuOpen = true
@@ -943,6 +971,7 @@ Item {
   function openRoute(initialMenu) {
     var id = MenuModel.resolveRoute(centerIsland.items, centerIsland.itemOrder, initialMenu)
     var entry = MenuModel.item(centerIsland.items, id)
+    centerIsland.claimMenu()
     if (centerIsland.openPickerFor(id)) return "ok"
     if (entry && entry.kind === "action" && entry.action) {
       centerIsland.closeMenu()
@@ -979,6 +1008,7 @@ Item {
   }
 
   function openDmenu(payload) {
+    centerIsland.claimMenu()
     centerIsland.requestSerial += 1
     centerIsland.dmenuMode = payload.mode === "input" ? "input" : "select"
     centerIsland.dmenuPrompt = String(payload.prompt || (centerIsland.dmenuMode === "input" ? "Input" : "Select"))
