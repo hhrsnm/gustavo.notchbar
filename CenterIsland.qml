@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
 import qs.Commons
@@ -218,12 +219,79 @@ Item {
 
   // OSD mode management: "volume" | "brightness" | "media-action"
   property string osdMode: ""
+
+  // Workspace OSD: all regular workspaces as dots, current one highlighted.
+  // Shown when the focused workspace changes on the same monitor; a change
+  // caused by moving focus to another monitor is not a workspace switch.
+  readonly property var osdWorkspaces: {
+    var list = Hyprland.workspaces ? Hyprland.workspaces.values : []
+    var out = []
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id > 0) out.push(list[i])
+    out.sort(function(a, b) { return a.id - b.id })
+    return out
+  }
+  readonly property int osdWorkspaceId: Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1
+  property string lastWorkspaceMonitor: ""
+
+  // Workspace overview (hyprpm scrolloverview): it has no open/close event, so
+  // SUPER+TAB toggles this flag and the dots stay for as long as it's set.
+  // Clicking a workspace also closes it; Hyprland then emits a `fullscreen>>0`
+  // burst with no workspace event around it (a SUPER+N switch inside the
+  // overview emits fullscreen too, but always next to `workspace>>`). So a
+  // fullscreen burst without a workspace event within ~100ms means "closed".
+  // A SUPER+TAB close is caught the same way just before its toggle arrives,
+  // so a toggle right after an event-close is ignored.
+  // ponytail: heuristic on scrolloverview's event pattern (measured on its
+  // current version); if it changes, the dots only close with SUPER+TAB
+  property bool overviewOpen: false
+  property real overviewOpenedAt: 0
+  property real overviewClosedByEventAt: 0
+  property real lastWorkspaceEventAt: 0
+  property real overviewFullscreenAt: 0
+  function toggleOverview() {
+    if (!overviewOpen && Date.now() - overviewClosedByEventAt < 800) return
+    overviewOpen = !overviewOpen && !isMenuOpen
+    if (overviewOpen) overviewOpenedAt = Date.now()
+  }
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      var now = Date.now()
+      if (event.name.indexOf("workspace") !== -1 || event.name === "focusedmon") {
+        centerIsland.lastWorkspaceEventAt = now
+      } else if (event.name === "fullscreen" && centerIsland.overviewOpen && now - centerIsland.overviewOpenedAt > 300 && !overviewCloseCheck.running) {
+        centerIsland.overviewFullscreenAt = now
+        overviewCloseCheck.restart()
+      }
+    }
+  }
+  Timer {
+    id: overviewCloseCheck
+    interval: 80
+    onTriggered: {
+      if (!centerIsland.overviewOpen) return
+      if (centerIsland.lastWorkspaceEventAt >= centerIsland.overviewFullscreenAt - 50) return // a SUPER+N switch
+      centerIsland.overviewOpen = false
+      centerIsland.overviewClosedByEventAt = Date.now()
+    }
+  }
+
+  Connections {
+    target: Hyprland
+    function onFocusedWorkspaceChanged() {
+      var ws = Hyprland.focusedWorkspace
+      var mon = ws && ws.monitor ? String(ws.monitor.name || "") : ""
+      if (mon !== "" && mon === centerIsland.lastWorkspaceMonitor && ws.id > 0) centerIsland.triggerOsd("workspace")
+      centerIsland.lastWorkspaceMonitor = mon
+    }
+  }
   property bool isOsdActive: osdTimer.running
   property string mediaOsdMessage: ""
   property string mediaOsdIcon: "󰐊"
 
   function triggerOsd(mode) {
-    if (!centerIsland.isFocusedScreen) return
+    // OSDs follow focus, except the workspace dots, which show on every monitor
+    if (!centerIsland.isFocusedScreen && mode !== "workspace") return
     if (centerIsland.isMenuOpen || centerIsland.isHistoryOpen) return
     osdMode = mode
     osdTimer.restart()
@@ -267,7 +335,7 @@ Item {
 
   Timer {
     id: osdTimer
-    interval: 1600
+    interval: centerIsland.osdMode === "workspace" ? 1000 : 1600
     repeat: false
     onTriggered: {
       centerIsland.osdMode = ""
@@ -1115,6 +1183,7 @@ Item {
     if (centerIsland.isMenuOpen && notchPicker.kind !== "") return "picker"
     if (centerIsland.isMenuOpen) return "menu"
     if (centerIsland.isHistoryOpen) return "history"
+    if (overviewOpen) return "workspace"
     if (isOsdActive && osdMode !== "") return osdMode
     if (isNotificationActive && currentNotification) return "notification"
     if (isMediaOpen && hasActiveMedia) return "media"
@@ -1173,6 +1242,7 @@ Item {
         return 340
       case "history": return 480
       case "picker": return 800
+      case "workspace": return Math.max(120, osdWorkspaces.length * 20 + 40)
       case "volume":
       case "brightness": return 300
       case "media-action": return Math.min(360, Math.max(180, mediaActionRow.implicitWidth + 32))
@@ -1202,6 +1272,7 @@ Item {
       }
       case "history": return 400
       case "picker": return 180
+      case "workspace":
       case "volume":
       case "brightness":
       case "media-action": return 36
@@ -1651,6 +1722,41 @@ Item {
 
         Behavior on opacity {
           NumberAnimation { duration: 140; easing.type: Easing.OutQuad }
+        }
+      }
+
+      // ------------------------------------------------------------- Workspace OSD (dots)
+      Item {
+        id: workspaceView
+        anchors.fill: parent
+        visible: opacity > 0.01
+        opacity: centerIsland.currentMode === "workspace" ? 1.0 : 0.0
+
+        Behavior on opacity {
+          NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        }
+
+        Row {
+          anchors.centerIn: parent
+          spacing: 8
+
+          Repeater {
+            model: centerIsland.osdWorkspaces
+
+            Rectangle {
+              required property var modelData
+              readonly property bool current: modelData.id === centerIsland.osdWorkspaceId
+              anchors.verticalCenter: parent.verticalCenter
+              width: current ? 24 : 8
+              height: 8
+              radius: 4
+              color: centerIsland.islandForeground
+              opacity: current ? 1.0 : 0.35
+
+              Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            }
+          }
         }
       }
 

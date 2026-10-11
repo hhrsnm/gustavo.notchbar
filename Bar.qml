@@ -339,6 +339,16 @@ Item {
   IpcHandler {
     target: "island"
 
+    // Called by omarchy-notchbar-overview when SUPER+TAB toggles the
+    // scrolloverview plugin, which has no open/close event of its own.
+    function overviewToggle(): string {
+      // "toggle all" opens the overview on every monitor, so every notch shows the dots
+      for (var i = 0; i < root.centerIslandInstances.length; i++) {
+        if (root.centerIslandInstances[i]) root.centerIslandInstances[i].toggleOverview()
+      }
+      return "ok"
+    }
+
     function syncHidden(): string {
       barHiddenProbe.running = true
       return "ok"

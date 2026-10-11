@@ -1,0 +1,8 @@
+#!/bin/bash
+# omarchy-notchbar-overview: toggle the scrolloverview workspace overview and
+# tell the notch, so it shows the workspace dots while the overview is open.
+# Bind it in ~/.config/hypr/bindings.lua:
+#   o.bind("SUPER + TAB", "Workspace Overview", "~/.config/omarchy/plugins/gustavo.notchbar/omarchy-notchbar-overview")
+
+hyprctl dispatch 'hl.plugin.scrolloverview.overview("toggle all")' >/dev/null
+omarchy-shell -q island overviewToggle
