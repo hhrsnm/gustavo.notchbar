@@ -220,18 +220,25 @@ Item {
   // OSD mode management: "volume" | "brightness" | "media-action"
   property string osdMode: ""
 
-  // Workspace OSD: all regular workspaces as dots, current one highlighted.
-  // Shown when the focused workspace changes on the same monitor; a change
-  // caused by moving focus to another monitor is not a workspace switch.
+  // Workspace OSD: this monitor's regular workspaces as numbers, its active one
+  // highlighted. Shown on every monitor when the focused workspace changes on
+  // the same monitor; a change caused by moving focus to another monitor is not
+  // a workspace switch.
+  readonly property var osdMonitor: (barWindow && barWindow.screen) ? Hyprland.monitorFor(barWindow.screen) : null
   readonly property var osdWorkspaces: {
     var list = Hyprland.workspaces ? Hyprland.workspaces.values : []
     var out = []
-    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id > 0) out.push(list[i])
+    for (var i = 0; i < list.length; i++) {
+      var ws = list[i]
+      if (ws && ws.id > 0 && (!osdMonitor || (ws.monitor && ws.monitor.name === osdMonitor.name))) out.push(ws)
+    }
     out.sort(function(a, b) { return a.id - b.id })
     return out
   }
-  readonly property int osdWorkspaceId: Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1
-  property string lastWorkspaceMonitor: ""
+  readonly property int osdWorkspaceId: (osdMonitor && osdMonitor.activeWorkspace) ? osdMonitor.activeWorkspace.id
+    : (Hyprland.focusedWorkspace ? Hyprland.focusedWorkspace.id : -1)
+  // Seeded with the current monitor so the first switch after a restart shows too
+  property string lastWorkspaceMonitor: (Hyprland.focusedWorkspace && Hyprland.focusedWorkspace.monitor) ? String(Hyprland.focusedWorkspace.monitor.name || "") : ""
 
   // Workspace overview (hyprpm scrolloverview): it has no open/close event, so
   // SUPER+TAB toggles this flag and the dots stay for as long as it's set.
@@ -1242,7 +1249,7 @@ Item {
         return 340
       case "history": return 480
       case "picker": return 800
-      case "workspace": return Math.max(120, osdWorkspaces.length * 20 + 40)
+      case "workspace": return Math.max(90, osdWorkspaces.length * 26 + 28)
       case "volume":
       case "brightness": return 300
       case "media-action": return Math.min(360, Math.max(180, mediaActionRow.implicitWidth + 32))
@@ -1725,7 +1732,7 @@ Item {
         }
       }
 
-      // ------------------------------------------------------------- Workspace OSD (dots)
+      // ------------------------------------------------------------- Workspace OSD (numbers)
       Item {
         id: workspaceView
         anchors.fill: parent
@@ -1738,23 +1745,41 @@ Item {
 
         Row {
           anchors.centerIn: parent
-          spacing: 8
+          spacing: 4
 
           Repeater {
             model: centerIsland.osdWorkspaces
 
-            Rectangle {
+            Item {
               required property var modelData
               readonly property bool current: modelData.id === centerIsland.osdWorkspaceId
               anchors.verticalCenter: parent.verticalCenter
-              width: current ? 24 : 8
-              height: 8
-              radius: 4
-              color: centerIsland.islandForeground
-              opacity: current ? 1.0 : 0.35
+              width: 22
+              height: 22
 
-              Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-              Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              // Underline under the current workspace
+              Rectangle {
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 1
+                width: parent.current ? 12 : 0
+                height: 2
+                radius: 1
+                color: centerIsland.islandForeground
+                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              }
+
+              Text {
+                anchors.centerIn: parent
+                anchors.verticalCenterOffset: -1
+                text: parent.modelData.name || parent.modelData.id
+                color: centerIsland.islandForeground
+                opacity: parent.current ? 1.0 : 0.45
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                font.weight: parent.current ? Font.Bold : Font.Normal
+                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+              }
             }
           }
         }
